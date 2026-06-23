@@ -5,9 +5,10 @@ const KEY = "fitlog:v1";
 export async function loadState(){
   try {
     const raw = await AsyncStorage.getItem(KEY);
-    return raw ? JSON.parse(raw) : { logs:{}, bodyWeights:[] };
+    const s = raw ? JSON.parse(raw) : {};
+    return { logs: s.logs||{}, bodyWeights: s.bodyWeights||[], games: s.games||[] };
   } catch {
-    return { logs:{}, bodyWeights:[] };
+    return { logs:{}, bodyWeights:[], games:[] };
   }
 }
 

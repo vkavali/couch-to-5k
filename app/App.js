@@ -12,6 +12,7 @@ import RunTimerScreen from "./src/screens/RunTimerScreen";
 import StrengthScreen from "./src/screens/StrengthScreen";
 import ProgressScreen from "./src/screens/ProgressScreen";
 import DevicesScreen from "./src/screens/DevicesScreen";
+import GamesScreen from "./src/screens/GamesScreen";
 
 // ---- shared app state ----
 export const LogContext = createContext(null);
@@ -25,7 +26,7 @@ const navTheme = {
 };
 
 export default function App(){
-  const [state, setState] = useState({ logs:{}, bodyWeights:[] });
+  const [state, setState] = useState({ logs:{}, bodyWeights:[], games:[] });
   const [loaded, setLoaded] = useState(false);
 
   useEffect(()=>{ (async()=>{ setState(await loadState()); setLoaded(true); })(); },[]);
@@ -39,8 +40,13 @@ export default function App(){
     setState(s => ({ ...s, bodyWeights:[
       ...s.bodyWeights.filter(x=>x.iso!==isoDay(new Date())),
       { iso: isoDay(new Date()), kg } ] }));
+  const addGame = (game) =>
+    setState(s => ({ ...s, games: [ ...s.games.filter(g=>g.iso!==game.iso), game ]
+      .sort((a,b)=>a.iso<b.iso?-1:1) }));
+  const removeGame = (iso) =>
+    setState(s => ({ ...s, games: s.games.filter(g=>g.iso!==iso) }));
 
-  const ctx = { ...state, logDay, logRunToday, addWeight };
+  const ctx = { ...state, logDay, logRunToday, addWeight, addGame, removeGame };
 
   const icon = (name) => ({ color, size }) => <Ionicons name={name} size={size} color={color}/>;
 
@@ -60,6 +66,8 @@ export default function App(){
             options={{ tabBarIcon: icon("pulse-outline") }}/>
           <Tab.Screen name="Strength" component={StrengthScreen}
             options={{ tabBarIcon: icon("barbell-outline") }}/>
+          <Tab.Screen name="Games" component={GamesScreen}
+            options={{ tabBarIcon: icon("baseball-outline") }}/>
           <Tab.Screen name="Progress" component={ProgressScreen}
             options={{ tabBarIcon: icon("stats-chart-outline") }}/>
           <Tab.Screen name="Devices" component={DevicesScreen}

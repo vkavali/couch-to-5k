@@ -31,6 +31,10 @@ Backend (optional): `cd server && npm install && cp .env.example .env && npm sta
 
 ## What's already done
 - Plan engine + helpers (`lib/plan.js`)
+- **Game-day adjustment** (`lib/planAdjust.js` + `screens/GamesScreen.js`): logging a
+  cricket day reshapes the week — game = hard impact day, no run on either side,
+  displaced run shifts to a free day (or drops if the week is too busy). Today
+  screen renders game/recovery day types and adjustment notes.
 - Today screen (auto-selects the day's workout, browse any day, mark complete)
 - Guided interval **run timer** with phase ring + warm-up/cool-down sequencing
   (`screens/RunTimerScreen.js`), with a finish-log for time/distance/notes
