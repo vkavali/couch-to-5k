@@ -1,0 +1,13 @@
+{
+  "expo": {
+    "name": "Couch to 5K",
+    "slug": "couch-to-5k",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0e1418",
+    "splash": { "backgroundColor": "#0e1418", "resizeMode": "contain" },
+    "ios": { "supportsTablet": true, "bundleIdentifier": "com.yourname.couchto5k" },
+    "android": { "package": "com.yourname.couchto5k" }
+  }
+}
