@@ -43,17 +43,23 @@ Backend (optional): `cd server && npm install && cp .env.example .env && npm sta
 - Devices screen + BLE HR service + Garmin backend skeleton
 
 ## Next steps (in priority order)
-1. **Wire live HR into the run timer.** Move HR connection into shared state (a
-   context or zustand store), feed BPM into `RunTimerScreen`, and capture
-   avg/max HR into the finish-log record.
-2. **Audio/haptic cues** on phase changes in the run timer (expo-haptics +
-   expo-av), since the web version had beeps and the RN port doesn't yet.
-3. **Charts** on the Progress screen (body weight + run duration over time) using
-   `react-native-svg` (already a dependency).
-4. **Daily workout notifications** (expo-notifications).
-5. **Garmin OAuth**: implement the real OAuth 1.0a request-token/access-token
-   calls and the webhook handler in `server/index.js`. Gated on Garmin dev
-   approval — leave as TODO until keys exist.
+1. **Shin-aware progression.** The user developed shin pain early (new running impact
+   stacking with weekend cricket bowling). Add a "gentler / return-from-shin-pain"
+   plan variant: more walk/jog, slower week-to-week jumps, and a lower-leg
+   strength block (tibialis raises, calf raises) baked in. Consider a toggle so the
+   jumping/agility drills only unlock once the user marks the shin pain-free.
+2. **Profile / gear screen.** Store the user's shoe + fit data and surface it with the
+   plan. Known facts: neutral runner, rigid arches, medium arch height, wide (right
+   foot E / 2E), high instep, US men's ~9.5. Owns New Balance Fresh Foam X 1080v15
+   (primary runner). Considering a cheaper daily (NB 880v15 2E) + a rubber-soled
+   cricket shoe (NB CK4040 rubber) for grass + synthetic grounds.
+3. **Wire live HR into the run timer** (see lib/hr.js) — feed BPM into RunTimerScreen
+   and capture avg/max into the finish-log.
+4. **Audio/haptic cues** on run phase changes (expo-haptics + expo-av).
+5. **Charts** on Progress (body weight + run duration) using react-native-svg.
+6. **Daily workout notifications** (expo-notifications).
+7. **Garmin OAuth**: implement the real OAuth 1.0a flow + webhook in server/index.js.
+   Gated on Garmin Developer Program approval — leave as TODO until keys exist.
 
 ## Conventions
 - Theme tokens live in `app/src/lib/theme.js` (`C.*`). Use them, don't hardcode colors.
