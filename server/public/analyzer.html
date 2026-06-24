@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Run Form Analyzer</title>
+<style>
+  :root{
+    --bg:#0e1418; --panel:#18222a; --panel2:#1f2c35; --ink:#eef4f3;
+    --muted:#8aa0a6; --jog:#ff7a3c; --walk:#3aa0ff; --accent:#1fd6a6;
+    --warn:#ffb454; --bad:#ff5d5d; --line:rgba(255,255,255,.08);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  .wrap{max-width:1100px;margin:0 auto;padding:18px}
+  h1{font-size:20px;margin:0 0 2px;display:flex;align-items:center;gap:8px}
+  .sub{color:var(--muted);font-size:13px;margin-bottom:16px}
+  .grid{display:grid;grid-template-columns:1.4fr 1fr;gap:16px}
+  @media(max-width:820px){.grid{grid-template-columns:1fr}}
+  .stage{position:relative;background:#000;border-radius:16px;overflow:hidden;aspect-ratio:4/3}
+  video,canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+  video{transform:scaleX(-1)} canvas{transform:scaleX(-1)}
+  .badge{position:absolute;top:12px;left:12px;background:rgba(0,0,0,.55);
+    border-radius:20px;padding:5px 12px;font-size:13px;font-weight:700;display:flex;
+    align-items:center;gap:7px;z-index:3}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--muted)}
+  .controls{display:flex;gap:10px;margin-top:12px;flex-wrap:wrap}
+  button{border:none;border-radius:12px;padding:12px 16px;font-weight:700;font-size:14px;
+    cursor:pointer;background:var(--accent);color:#04211a}
+  button.ghost{background:transparent;border:1px solid var(--line);color:var(--ink)}
+  button:disabled{opacity:.45;cursor:default}
+  .cards{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .card{background:var(--panel);border-radius:14px;padding:14px}
+  .card .label{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:1px}
+  .card .val{font-size:30px;font-weight:800;line-height:1.1;margin-top:4px}
+  .card .unit{font-size:13px;color:var(--muted);font-weight:600}
+  .card .cue{font-size:12px;margin-top:6px;line-height:1.4}
+  .good{color:var(--accent)} .warn{color:var(--warn)} .bad{color:var(--bad)}
+  .panelbox{background:var(--panel);border-radius:14px;padding:14px;margin-top:12px}
+  .panelbox h3{margin:0 0 8px;font-size:14px}
+  .note{color:var(--muted);font-size:12px;line-height:1.55}
+  ul{margin:6px 0 0;padding-left:18px} li{margin:3px 0;font-size:12.5px;color:var(--muted)}
+  .status{font-size:12px;color:var(--muted);margin-top:8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🏃 Run Form Analyzer</h1>
+  <div class="sub">Side-on webcam gait check. Everything runs on your machine — no video is uploaded.</div>
+
+  <div class="grid">
+    <div>
+      <div class="stage">
+        <video id="vid" autoplay playsinline muted></video>
+        <canvas id="cv"></canvas>
+        <div class="badge"><span class="dot" id="dot"></span><span id="state">Idle</span></div>
+      </div>
+      <div class="controls">
+        <button id="enable">Enable camera</button>
+        <button id="session" class="ghost" disabled>Start session</button>
+        <button id="reset" class="ghost" disabled>Reset</button>
+      </div>
+      <div class="status" id="status">Loading pose model…</div>
+    </div>
+
+    <div>
+      <div class="cards">
+        <div class="card"><div class="label">Cadence</div>
+          <div class="val"><span id="cad">–</span> <span class="unit">spm</span></div>
+          <div class="cue" id="cadCue">steps per minute</div></div>
+        <div class="card"><div class="label">Trunk lean</div>
+          <div class="val"><span id="lean">–</span><span class="unit">°</span></div>
+          <div class="cue" id="leanCue">forward tilt</div></div>
+        <div class="card"><div class="label">Vertical bounce</div>
+          <div class="val"><span id="osc">–</span> <span class="unit">cm*</span></div>
+          <div class="cue" id="oscCue">up/down travel</div></div>
+        <div class="card"><div class="label">Knee drive</div>
+          <div class="val"><span id="knee">–</span><span class="unit">°</span></div>
+          <div class="cue" id="kneeCue">min knee angle</div></div>
+      </div>
+
+      <div class="panelbox">
+        <h3>Session summary</h3>
+        <div class="note" id="summary">Start a session and run for ~30–60 s to get averages and cues.</div>
+      </div>
+
+      <div class="panelbox">
+        <h3>How to set up</h3>
+        <ul>
+          <li>Camera at hip height, fully side-on, 2–3 m away so your whole body fits.</li>
+          <li>Good even lighting; plain background helps tracking.</li>
+          <li>Wear fitted clothes — baggy clothing confuses joint detection.</li>
+          <li>* Bounce is an estimate scaled from your torso length, not a precise cm.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { PoseLandmarker, FilesetResolver }
+  from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.12";
+
+const $ = id => document.getElementById(id);
+const vid=$("vid"), cv=$("cv"), ctx=cv.getContext("2d");
+let landmarker=null, running=false, sessionOn=false, raf=null;
+
+// ---- load model ----
+try{
+  const fileset = await FilesetResolver.forVisionTasks(
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.12/wasm");
+  landmarker = await PoseLandmarker.createFromOptions(fileset,{
+    baseOptions:{ modelAssetPath:
+      "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task",
+      delegate:"GPU" },
+    runningMode:"VIDEO", numPoses:1 });
+  $("status").textContent="Pose model ready. Click ‘Enable camera’.";
+  $("enable").disabled=false;
+}catch(e){
+  $("status").textContent="Couldn’t load the pose model (need internet on first run). "+e;
+}
+
+// ---- camera ----
+$("enable").onclick = async ()=>{
+  try{
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video:{ width:960, height:720, facingMode:"user" }, audio:false });
+    vid.srcObject=stream;
+    await vid.play();
+    cv.width=vid.videoWidth; cv.height=vid.videoHeight;
+    running=true; $("state").textContent="Tracking"; $("dot").style.background="var(--accent)";
+    $("session").disabled=false; $("reset").disabled=false;
+    $("status").textContent="Tracking. Stand side-on and start running.";
+    loop();
+  }catch(e){
+    $("status").textContent="Camera blocked. If you opened this file directly, run it on "
+      +"localhost instead (see analyzer/README). Error: "+e.name;
+  }
+};
+
+// ---- analysis state ----
+const L={ Lsh:11,Rsh:12,Lhip:23,Rhip:24,Lkn:25,Rkn:26,Lank:27,Rank:28 };
+let hipBuf=[];            // {t, y} recent hip-Y for cadence + bounce
+let stepTimes=[];         // detected step timestamps
+let prevDetr=0;
+const metrics={ cad:[], lean:[], osc:[], knee:[] };
+
+const mid=(a,b)=>({x:(a.x+b.x)/2,y:(a.y+b.y)/2});
+const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+function angle(a,b,c){ // angle at b
+  const v1={x:a.x-b.x,y:a.y-b.y}, v2={x:c.x-b.x,y:c.y-b.y};
+  const d=(v1.x*v2.x+v1.y*v2.y)/((Math.hypot(v1.x,v1.y)*Math.hypot(v2.x,v2.y))||1);
+  return Math.acos(Math.max(-1,Math.min(1,d)))*180/Math.PI;
+}
+
+function loop(){
+  if(!running){ return; }
+  const now=performance.now();
+  const res=landmarker.detectForVideo(vid, now);
+  ctx.clearRect(0,0,cv.width,cv.height);
+  if(res.landmarks && res.landmarks[0]){
+    const lm=res.landmarks[0];
+    drawSkeleton(lm);
+    analyse(lm, now);
+  }
+  raf=requestAnimationFrame(loop);
+}
+
+function analyse(lm, t){
+  const sh=mid(lm[L.Lsh],lm[L.Rsh]);
+  const hip=mid(lm[L.Lhip],lm[L.Rhip]);
+  const torso=dist(sh,hip)||0.0001;
+
+  // trunk lean from vertical (degrees), forward positive-ish
+  const dx=sh.x-hip.x, dy=sh.y-hip.y;
+  const lean=Math.abs(Math.atan2(dx,-dy)*180/Math.PI);
+
+  // knee angle — use the leg whose points are most visible
+  const vis=(i)=> (lm[i].visibility ?? 1);
+  const left = vis(L.Lkn)+vis(L.Lank), right = vis(L.Rkn)+vis(L.Rank);
+  const kHip=left>=right?L.Lhip:L.Rhip, kKn=left>=right?L.Lkn:L.Rkn, kAn=left>=right?L.Lank:L.Rank;
+  const knee=angle(lm[kHip],lm[kKn],lm[kAn]);
+
+  // cadence + bounce via hip vertical oscillation
+  hipBuf.push({t, y:hip.y}); 
+  const WIN=4000; // ms
+  hipBuf=hipBuf.filter(p=>t-p.t<=WIN);
+  let osc=null, cad=null, moving=false;
+  if(hipBuf.length>8){
+    const ys=hipBuf.map(p=>p.y);
+    const minY=Math.min(...ys), maxY=Math.max(...ys);
+    const amp=maxY-minY;                       // normalized
+    moving = amp > 0.012;                       // crude "is running" gate
+    osc = amp/torso*50;                         // cm estimate (torso≈50cm)
+    // detrend latest sample and count upward zero-crossings = steps
+    const mean=ys.reduce((a,b)=>a+b,0)/ys.length;
+    const detr=hip.y-mean;
+    if(prevDetr<0 && detr>=0 && moving){ stepTimes.push(t); }
+    prevDetr=detr;
+    stepTimes=stepTimes.filter(s=>t-s<=WIN);
+    if(stepTimes.length>=2){
+      const span=(stepTimes[stepTimes.length-1]-stepTimes[0])/1000;
+      cad = span>0 ? Math.round((stepTimes.length-1)/span*60) : null;
+    }
+  }
+
+  // update UI
+  setVal("lean", lean.toFixed(0), leanCue(lean));
+  setVal("knee", knee.toFixed(0), kneeCue(knee));
+  if(osc!=null) setVal("osc", osc.toFixed(1), oscCue(osc));
+  if(cad!=null) setVal("cad", cad, cadCue(cad));
+  $("state").textContent = moving ? "Running" : "Tracking";
+
+  if(sessionOn && moving){
+    metrics.lean.push(lean); metrics.knee.push(knee);
+    if(osc!=null) metrics.osc.push(osc);
+    if(cad!=null) metrics.cad.push(cad);
+  }
+}
+
+// ---- coaching cues (heuristic, not medical) ----
+function leanCue(v){ if(v<3) return ["Quite upright — a slight lean from the ankles can help","warn"];
+  if(v<=12) return ["Good forward lean","good"]; return ["Leaning a lot — keep it from the ankles, not the waist","warn"]; }
+function kneeCue(v){ if(v<100) return ["Strong knee drive","good"];
+  if(v<130) return ["Moderate knee bend","warn"]; return ["Fairly straight legs — a touch more bend absorbs impact","warn"]; }
+function oscCue(v){ if(v<8) return ["Low bounce — efficient","good"];
+  if(v<11) return ["Moderate bounce","warn"]; return ["High bounce — try quicker, lighter steps","bad"]; }
+function cadCue(v){ if(v<160) return ["Low turnover — shorter, quicker steps may help","warn"];
+  if(v<=185) return ["In the typical efficient range","good"]; return ["Very high turnover","warn"]; }
+
+function setVal(id, val, cue){
+  $(id).textContent=val;
+  const el=$(id+"Cue"); if(cue){ el.textContent=cue[0]; el.className="cue "+cue[1]; }
+}
+
+// ---- skeleton overlay ----
+const BONES=[[11,12],[11,23],[12,24],[23,24],[23,25],[25,27],[24,26],[26,28],
+  [11,13],[13,15],[12,14],[14,16]];
+function drawSkeleton(lm){
+  ctx.lineWidth=4; ctx.strokeStyle="rgba(31,214,166,.9)"; ctx.fillStyle="#ff7a3c";
+  for(const [a,b] of BONES){
+    ctx.beginPath();
+    ctx.moveTo(lm[a].x*cv.width, lm[a].y*cv.height);
+    ctx.lineTo(lm[b].x*cv.width, lm[b].y*cv.height); ctx.stroke();
+  }
+  for(const i of [11,12,23,24,25,26,27,28]){
+    ctx.beginPath(); ctx.arc(lm[i].x*cv.width, lm[i].y*cv.height,5,0,7); ctx.fill();
+  }
+}
+
+// ---- session control ----
+$("session").onclick=()=>{
+  sessionOn=!sessionOn;
+  $("session").textContent=sessionOn?"Stop session":"Start session";
+  $("session").classList.toggle("ghost",!sessionOn);
+  if(!sessionOn) showSummary();
+  else { for(const k in metrics) metrics[k]=[]; $("summary").textContent="Recording… run naturally."; }
+};
+$("reset").onclick=()=>{ hipBuf=[]; stepTimes=[]; for(const k in metrics) metrics[k]=[];
+  ["cad","lean","osc","knee"].forEach(i=>$(i).textContent="–"); $("summary").textContent="Reset."; };
+
+function avg(a){ return a.length? a.reduce((x,y)=>x+y,0)/a.length : null; }
+function showSummary(){
+  const c=avg(metrics.cad), l=avg(metrics.lean), o=avg(metrics.osc), k=avg(metrics.knee);
+  if(c==null && l==null){ $("summary").textContent="Not enough running detected — try again."; return; }
+  const fmt=(x,d=0)=> x==null?"–":x.toFixed(d);
+  $("summary").innerHTML =
+    `Averages over the session:<br>`+
+    `• Cadence <b>${fmt(c)}</b> spm<br>`+
+    `• Trunk lean <b>${fmt(l)}°</b><br>`+
+    `• Vertical bounce <b>${fmt(o,1)}</b> cm*<br>`+
+    `• Knee drive (min angle) <b>${fmt(k)}°</b><br>`+
+    `<span style="color:var(--muted)">Cues update live on the cards above. These are coaching `+
+    `heuristics from a single 2D view — not medical measurements.</span>`;
+}
+</script>
+</body>
+</html>

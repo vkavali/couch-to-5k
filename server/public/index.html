@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Couch → 5K · Backend</title>
+<style>
+  :root{ --bg:#0e1418; --panel:#18222a; --ink:#eef4f3; --muted:#8aa0a6;
+    --accent:#1fd6a6; --warn:#ffb454; --line:rgba(255,255,255,.08); }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);min-height:100vh;
+    display:flex;align-items:center;justify-content:center;
+    font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:18px;
+    padding:28px 30px;max-width:520px;width:calc(100% - 32px)}
+  h1{font-size:20px;margin:0 0 4px;display:flex;align-items:center;gap:9px}
+  .dot{width:10px;height:10px;border-radius:50%;background:var(--accent);
+    box-shadow:0 0 12px var(--accent)}
+  .sub{color:var(--muted);font-size:13px;margin:0 0 18px}
+  .row{display:flex;justify-content:space-between;gap:12px;padding:9px 0;
+    border-top:1px solid var(--line);font-size:14px}
+  .row:first-of-type{border-top:none}
+  code{background:#0b1216;border:1px solid var(--line);border-radius:6px;
+    padding:2px 7px;font-size:12.5px;color:var(--accent)}
+  .pill{font-size:12px;padding:3px 10px;border-radius:20px;font-weight:700}
+  .ok{background:rgba(31,214,166,.15);color:var(--accent)}
+  .pending{background:rgba(255,180,84,.15);color:var(--warn)}
+  a{color:var(--accent)}
+  .foot{margin-top:18px;font-size:12px;color:var(--muted);line-height:1.5}
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1><span class="dot"></span> Couch → 5K backend</h1>
+    <p class="sub">Garmin Health API sync service. The mobile app talks to this; the app itself ships via the App Store / Play Store, not here.</p>
+
+    <div class="row"><span>Service</span><span class="pill ok" id="svc">live</span></div>
+    <div class="row"><span>Garmin integration</span><span class="pill pending" id="garmin">checking…</span></div>
+    <div class="row"><span>Health check</span><span><code>/health</code></span></div>
+    <div class="row"><span>Status JSON</span><span><code>/status</code></span></div>
+    <div class="row"><span>Run-form analyzer</span><span><a href="/analyzer.html">/analyzer.html</a></span></div>
+
+    <p class="foot">
+      Garmin sync stays inert until a Garmin Developer Program (Health API) account is
+      approved and <code>GARMIN_CONSUMER_KEY</code> / <code>GARMIN_CONSUMER_SECRET</code>
+      are set. Until then the <code>/auth/garmin/*</code> routes return an honest 501.
+    </p>
+  </div>
+  <script>
+    fetch("/status").then(r=>r.json()).then(d=>{
+      var el=document.getElementById("garmin");
+      if(d.garminConfigured){ el.textContent="configured"; el.className="pill ok"; }
+      else { el.textContent="not configured"; el.className="pill pending"; }
+    }).catch(()=>{});
+  </script>
+</body>
+</html>

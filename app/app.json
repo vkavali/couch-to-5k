@@ -6,8 +6,32 @@
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "backgroundColor": "#0e1418",
-    "splash": { "backgroundColor": "#0e1418", "resizeMode": "contain" },
-    "ios": { "supportsTablet": true, "bundleIdentifier": "com.yourname.couchto5k" },
-    "android": { "package": "com.yourname.couchto5k" }
+    "icon": "./assets/icon.png",
+    "scheme": "couchto5k",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0e1418"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.vkavali.couchto5k"
+    },
+    "android": {
+      "package": "com.vkavali.couchto5k",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0e1418"
+      }
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "REPLACE_WITH_EAS_PROJECT_ID"
+      }
+    }
   }
 }
