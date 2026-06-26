@@ -171,13 +171,16 @@ app.post("/coach", async (req, res) => {
     });
     if (!r.ok) {
       const txt = await r.text();
-      return res.status(502).json({ error: "Anthropic API error", detail: txt.slice(0, 300) });
+      console.error("Anthropic API error", r.status, txt.slice(0, 400));
+      // surface the real reason in the chat bubble (debug aid) instead of a silent "No reply"
+      return res.json({ reply: `Coach upstream error ${r.status}: ${txt.slice(0, 220)}` });
     }
     const data = await r.json();
     const reply = (data.content || []).map(b => b.text || "").join("").trim();
-    res.json({ reply });
+    res.json({ reply: reply || "No reply." });
   } catch (e) {
-    res.status(500).json({ error: "Coach failed", detail: String(e).slice(0, 200) });
+    console.error("Coach failed", e);
+    res.json({ reply: `Coach failed: ${String(e).slice(0, 200)}` });
   }
 });
 
