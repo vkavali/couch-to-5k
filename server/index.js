@@ -1,62 +1,79 @@
 /**
- * Garmin Health API backend — skeleton, Railway-ready.
+ * Garmin Health API backend — skeleton.
  *
  * What this is: the server you need so the mobile app can sync Garmin data
  * (runs, heart rate, sleep). A phone app alone CANNOT do this — Garmin requires
  * a server-side OAuth flow plus a webhook endpoint that Garmin pushes data to.
  *
- * Before the Garmin sync actually works you must:
+ * Before this works you must:
  *   1. Apply to the Garmin Developer Program and get approved for the Health API
  *      (https://developer.garmin.com/health-api/). Approval is required and not instant.
- *   2. Receive a Consumer Key + Consumer Secret. Put them in env vars (see .env.example).
+ *   2. Receive a Consumer Key + Consumer Secret. Put them in a .env file (see .env.example).
  *   3. Register this server's callback URL in the Garmin developer portal.
- *   4. Deploy this somewhere with HTTPS (Railway does this for you).
+ *   4. Deploy this somewhere with HTTPS (Railway, Fly, Render, etc.).
  *
- * This server is deployable RIGHT NOW: it boots, serves a status landing page and
- * a /health check, and the Garmin endpoints return honest 501s until keys exist.
  * Garmin's Health API uses OAuth 1.0a (user authorization) + ping/push webhooks.
- * The TODOs below are exactly where Garmin's signed requests go.
+ * The endpoints below lay out that flow; the TODOs are where Garmin's signed
+ * requests go. Keep secrets server-side only — never ship them in the app.
  */
 
 const express = require("express");
-const path = require("path");
+const crypto = require("crypto");
 
 const app = express();
 app.use(express.json());
-app.use(express.static(path.join(__dirname, "public")));
+
+// CORS — the mobile app calls this from a different origin.
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Headers", "Content-Type");
+  res.header("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  if (req.method === "OPTIONS") return res.sendStatus(204);
+  next();
+});
 
 const {
   GARMIN_CONSUMER_KEY,
   GARMIN_CONSUMER_SECRET,
+  ANTHROPIC_API_KEY,
+  COACH_MODEL = "claude-3-5-haiku-latest",
   PORT = 8080,
 } = process.env;
+
+// Coach cost guards (override via env). max_tokens is hard-capped so a single
+// reply can't blow up; per-IP rate limit + a global daily cap bound total spend.
+const COACH_MAX_TOKENS = Math.min(800, Number(process.env.COACH_MAX_TOKENS) || 500);
+const COACH_RPM = Number(process.env.COACH_RPM) || 15;          // requests/min/IP
+const COACH_DAILY_MAX = Number(process.env.COACH_DAILY_MAX) || 600; // total calls/day
+
+// tiny in-memory limiter (no external deps). Fine for a single instance;
+// swap for a shared store if you ever run multiple replicas.
+const hits = new Map(); // ip -> [timestamps within the window]
+let day = new Date().getUTCDate();
+let dayCount = 0;
+function rateLimited(ip) {
+  const now = Date.now();
+  const today = new Date().getUTCDate();
+  if (today !== day) { day = today; dayCount = 0; } // reset daily counter
+  if (dayCount >= COACH_DAILY_MAX) return "daily";
+  const arr = (hits.get(ip) || []).filter(t => now - t < 60_000);
+  if (arr.length >= COACH_RPM) return "rate";
+  arr.push(now); hits.set(ip, arr); dayCount++;
+  return null;
+}
 
 // In production store these per-user in a database, not in memory.
 const userTokens = new Map(); // userId -> { token, tokenSecret }
 
-const garminConfigured = Boolean(GARMIN_CONSUMER_KEY && GARMIN_CONSUMER_SECRET);
-
 function requireConfig(res){
-  if(!garminConfigured){
-    res.status(501).json({
-      error: "Garmin not configured",
-      detail: "Set GARMIN_CONSUMER_KEY and GARMIN_CONSUMER_SECRET (Garmin Health API approval required).",
-    });
+  if(!GARMIN_CONSUMER_KEY || !GARMIN_CONSUMER_SECRET){
+    res.status(500).json({ error: "Set GARMIN_CONSUMER_KEY and GARMIN_CONSUMER_SECRET in .env" });
     return false;
   }
   return true;
 }
 
-// Railway health check hits this.
-app.get("/health", (_req, res) => res.json({ ok: true, ts: Date.now() }));
-
-// Machine-readable status: is the Garmin integration wired up yet?
-app.get("/status", (_req, res) => res.json({
-  service: "couch-to-5k-garmin-backend",
-  ok: true,
-  garminConfigured,
-  endpoints: ["/health", "/status", "/auth/garmin/start", "/auth/garmin/callback", "/webhooks/garmin", "/api/activities/:userId"],
-}));
+app.get("/health", (_req, res) => res.json({ ok: true }));
 
 /**
  * Step 1 — start auth. The app opens this in a browser/WebView.
@@ -108,6 +125,60 @@ app.get("/api/activities/:userId", (req, res) => {
   res.json({ userId: req.params.userId, activities: [] });
 });
 
-// Bind to 0.0.0.0 so Railway/containers can route to it.
-app.listen(PORT, "0.0.0.0", () =>
-  console.log(`Couch-to-5K Garmin backend listening on :${PORT} (garminConfigured=${garminConfigured})`));
+/**
+ * AI Coach — calls the Anthropic Messages API. The key lives in env only,
+ * never in the app. The app POSTs { messages:[{role,content}], context:{...} }.
+ */
+const COACH_SYSTEM = `You are the in-app Coach for an adaptive Couch-to-5K + cricket + nutrition app.
+You receive the user's real current state as JSON context (today's workout type, shin status,
+goal, calorie/protein targets, planned meals, pantry, upcoming matches). Use it.
+
+Rules:
+- Keep replies short: 4-6 sentences, concrete, friendly. No markdown headers.
+- Ground every answer in the provided context; don't invent foods they don't have.
+- Around matches/heavy weeks, fuelling beats cutting — push adequate intake.
+- Respect shin status: sore = no running today, sharp = rest + suggest a physio.
+- Never give medical advice for conditions/pregnancy/disordered eating — point to a professional.
+- No crash diets, no punishment framing, no glorifying very low intake.`;
+
+app.post("/coach", async (req, res) => {
+  if (!ANTHROPIC_API_KEY) {
+    return res.status(500).json({ error: "Set ANTHROPIC_API_KEY in the server env to enable Coach." });
+  }
+  const ip = (req.headers["x-forwarded-for"] || req.socket.remoteAddress || "?").split(",")[0].trim();
+  const limit = rateLimited(ip);
+  if (limit === "rate") return res.status(429).json({ error: "Slow down a moment and try again." });
+  if (limit === "daily") return res.status(429).json({ error: "Coach is resting for today. Back tomorrow." });
+  try {
+    const { messages = [], context = {} } = req.body || {};
+    const convo = messages
+      .filter(m => m && (m.role === "user" || m.role === "assistant") && m.content)
+      .slice(-12)
+      .map(m => ({ role: m.role, content: String(m.content).slice(0, 2000) })); // cap input size
+    // prepend the live context to the first user turn
+    if (convo.length && convo[0].role === "user") {
+      convo[0] = { role: "user", content: `My current state:\n${JSON.stringify(context)}\n\n${convo[0].content}` };
+    }
+
+    const r = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({ model: COACH_MODEL, max_tokens: COACH_MAX_TOKENS, system: COACH_SYSTEM, messages: convo }),
+    });
+    if (!r.ok) {
+      const txt = await r.text();
+      return res.status(502).json({ error: "Anthropic API error", detail: txt.slice(0, 300) });
+    }
+    const data = await r.json();
+    const reply = (data.content || []).map(b => b.text || "").join("").trim();
+    res.json({ reply });
+  } catch (e) {
+    res.status(500).json({ error: "Coach failed", detail: String(e).slice(0, 200) });
+  }
+});
+
+app.listen(PORT, "0.0.0.0", () => console.log(`Backend on :${PORT}`));
