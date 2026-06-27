@@ -16,7 +16,13 @@
     "assetBundlePatterns": ["**/*"],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.vkavali.couchto5k"
+      "bundleIdentifier": "com.vkavali.couchto5k",
+      "buildNumber": "2",
+      "infoPlist": {
+        "NSBluetoothAlwaysUsageDescription": "Couch to 5K connects to a Bluetooth heart-rate monitor to show your live heart rate during runs.",
+        "NSBluetoothPeripheralUsageDescription": "Couch to 5K connects to a Bluetooth heart-rate monitor to show your live heart rate during runs.",
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.vkavali.couchto5k",

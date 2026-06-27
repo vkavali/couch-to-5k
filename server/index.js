@@ -73,6 +73,45 @@ function requireConfig(res){
   return true;
 }
 
+// --- TEMPORARY diagnostics (remove after Coach is confirmed working) ---
+// Confirms what's actually deployed + whether the key is present.
+app.get("/diag", (_req, res) => res.json({
+  build: "diag-1",
+  hasKey: !!ANTHROPIC_API_KEY,
+  keyPrefix: ANTHROPIC_API_KEY ? ANTHROPIC_API_KEY.slice(0, 7) : null,
+  model: COACH_MODEL,
+  node: process.version,
+}));
+// Lists the models this API key can actually use (authoritative, from Anthropic).
+app.get("/models", async (_req, res) => {
+  if (!ANTHROPIC_API_KEY) return res.json({ error: "no key set" });
+  try {
+    const r = await fetch("https://api.anthropic.com/v1/models?limit=100", {
+      headers: { "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
+    });
+    const body = await r.text();
+    res.type("application/json").send(body);
+  } catch (e) {
+    res.json({ error: String(e).slice(0, 300) });
+  }
+});
+// Makes the real Anthropic call (tiny) and returns the raw status + body, so the
+// exact upstream error (bad key, credits, model access) is visible over a GET.
+app.get("/coach-test", async (_req, res) => {
+  if (!ANTHROPIC_API_KEY) return res.json({ error: "no key set" });
+  try {
+    const r = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
+      body: JSON.stringify({ model: COACH_MODEL, max_tokens: 20, messages: [{ role: "user", content: "say hi" }] }),
+    });
+    const body = await r.text();
+    res.json({ status: r.status, ok: r.ok, model: COACH_MODEL, body: body.slice(0, 600) });
+  } catch (e) {
+    res.json({ error: String(e).slice(0, 300) });
+  }
+});
+
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
 /**
