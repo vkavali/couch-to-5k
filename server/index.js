@@ -19,15 +19,17 @@
 
 const express = require("express");
 const crypto = require("crypto");
+const db = require("./db");
+const auth = require("./auth");
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: "2mb" })); // state snapshots can be a few hundred KB
 
 // CORS — the mobile app calls this from a different origin.
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
-  res.header("Access-Control-Allow-Headers", "Content-Type");
-  res.header("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
   if (req.method === "OPTIONS") return res.sendStatus(204);
   next();
 });
@@ -73,7 +75,65 @@ function requireConfig(res){
   return true;
 }
 
-app.get("/health", (_req, res) => res.json({ ok: true }));
+app.get("/health", (_req, res) => res.json({ ok: true, db: db.hasDb(), auth: auth.configured() }));
+
+/* ------------------------------------------------------------------ *
+ * Accounts: Sign in with Apple (verified here) + cloud sync.
+ * Sign-in is OPTIONAL — the app works fully offline. These routes only
+ * exist for users who choose to sign in; nothing is stored for anyone else.
+ * ------------------------------------------------------------------ */
+
+// Exchange a verified Apple identity token for our own session token.
+app.post("/auth/apple", async (req, res) => {
+  if (!auth.configured()) return res.status(500).json({ error: "Set SESSION_SECRET in the server env." });
+  if (!db.hasDb()) return res.status(500).json({ error: "Set DATABASE_URL (add the Railway Postgres plugin)." });
+  const { identityToken, name } = req.body || {};
+  if (!identityToken) return res.status(400).json({ error: "Missing identityToken." });
+  try {
+    const { sub, email } = await auth.verifyAppleToken(identityToken);
+    const user = await db.upsertUser({ sub, email, name });
+    const token = await auth.issueSession(user.id);
+    const hasState = await db.hasState(user.id);
+    res.json({ token, hasState, user: { id: user.id, email: user.email, name: user.name } });
+  } catch (e) {
+    console.error("Apple sign-in failed", String(e).slice(0, 300));
+    res.status(401).json({ error: "Apple sign-in verification failed." });
+  }
+});
+
+// Pull this user's full state (server is source of truth after first sign-in).
+app.get("/state", auth.requireAuth, async (req, res) => {
+  try {
+    res.json({ state: await db.readState(req.userId) });
+  } catch (e) {
+    console.error("readState failed", String(e).slice(0, 300));
+    res.status(500).json({ error: "Could not load your data." });
+  }
+});
+
+// Replace this user's state from a client snapshot (last-write-wins).
+app.put("/state", auth.requireAuth, async (req, res) => {
+  const { state } = req.body || {};
+  if (!state || typeof state !== "object") return res.status(400).json({ error: "Missing state." });
+  try {
+    await db.writeState(req.userId, state);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("writeState failed", String(e).slice(0, 300));
+    res.status(500).json({ error: "Could not save your data." });
+  }
+});
+
+// Delete the account and ALL its data (required by App Store guideline 5.1.1).
+app.delete("/me", auth.requireAuth, async (req, res) => {
+  try {
+    await db.deleteUser(req.userId);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("deleteUser failed", String(e).slice(0, 300));
+    res.status(500).json({ error: "Could not delete your account." });
+  }
+});
 
 /**
  * Step 1 — start auth. The app opens this in a browser/WebView.
@@ -183,5 +243,9 @@ app.post("/coach", async (req, res) => {
     res.json({ reply: `Coach failed: ${String(e).slice(0, 200)}` });
   }
 });
+
+db.init()
+  .then(() => db.hasDb() && console.log("Postgres ready"))
+  .catch((e) => console.error("DB init failed", String(e).slice(0, 300)));
 
 app.listen(PORT, "0.0.0.0", () => console.log(`Backend on :${PORT}`));
