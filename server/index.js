@@ -77,6 +77,35 @@ function requireConfig(res){
 
 app.get("/health", (_req, res) => res.json({ ok: true, db: db.hasDb(), auth: auth.configured() }));
 
+// Public privacy policy (required for App Store submission). Plain, accurate page.
+app.get("/privacy", (_req, res) => {
+  res.set("content-type", "text/html; charset=utf-8").send(`<!doctype html><html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Couch to 5K — Privacy Policy</title>
+<style>body{font:16px/1.6 -apple-system,Segoe UI,Roboto,sans-serif;max-width:720px;margin:40px auto;padding:0 20px;color:#26261f;background:#f3ead2}h1{font-size:28px}h2{font-size:18px;margin-top:28px}a{color:#3a5a2e}</style>
+</head><body>
+<h1>Couch to 5K — Privacy Policy</h1>
+<p><em>Last updated: 28 June 2026</em></p>
+<p>Couch to 5K ("the app") helps you follow a running plan, schedule cricket matches, track injuries, and plan nutrition. This policy explains what we collect and how it is used.</p>
+<h2>What we collect</h2>
+<ul>
+<li><strong>Account</strong>: if you choose to sign in with Apple, we receive a unique Apple identifier and, on first sign-in only, your name and email. Sign-in is optional.</li>
+<li><strong>Your training data</strong>: workouts, runs, goals, cricket matches, injury/soreness notes, body metrics (age, height, weight, sex, activity), and nutrition preferences and meal logs that you enter.</li>
+<li><strong>Coach messages</strong>: when you use the in-app Coach, your message and your current plan context are sent to our server and to Anthropic (our AI provider) to generate a reply.</li>
+</ul>
+<h2>How it is used</h2>
+<p>Your data is used only to operate the app for you — to build and adapt your plan, sync it across your devices when signed in, and answer Coach questions. We do not sell your data or use it for advertising.</p>
+<h2>Where it is stored</h2>
+<p>If you sign in, your data is stored on our server infrastructure (Railway, PostgreSQL). If you do not sign in, your data stays only on your device. Coach messages are processed by Anthropic under their terms; they are not used to train models.</p>
+<h2>Deleting your data</h2>
+<p>You can delete your account and all associated data at any time from the app: Profile → Account → Delete account. This permanently removes your data from our server.</p>
+<h2>Children</h2>
+<p>The app is not directed to children under 13 and we do not knowingly collect their data.</p>
+<h2>Contact</h2>
+<p>Questions or requests: <a href="mailto:vkavali10@gmail.com">vkavali10@gmail.com</a>.</p>
+</body></html>`);
+});
+
 /* ------------------------------------------------------------------ *
  * Accounts: Sign in with Apple (verified here) + cloud sync.
  * Sign-in is OPTIONAL — the app works fully offline. These routes only
