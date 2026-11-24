@@ -2,9 +2,9 @@
   "expo": {
     "name": "Couch to 5K",
     "slug": "couch-to-5k",
-    "version": "0.1.0",
+    "version": "2.0.0",
     "orientation": "portrait",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "automatic",
     "backgroundColor": "#0e1418",
     "icon": "./assets/icon.png",
     "scheme": "couchto5k",

@@ -1,79 +1,65 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { AppState, useColorScheme } from "react-native";
 import { StatusBar } from "expo-status-bar";
-import { NavigationContainer, DefaultTheme } from "@react-navigation/native";
+import { SafeAreaProvider } from "react-native-safe-area-context";
+import { NavigationContainer, DefaultTheme, DarkTheme } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Ionicons } from "@expo/vector-icons";
-import { C } from "./src/lib/theme";
+import { useT } from "./src/ui/theme";
 import { loadState, saveState } from "./src/lib/store";
-import { isoDay } from "./src/lib/plan";
-
+import { R, emptyState, isoDay, buildPlan, deriveStage, injuryStatus, returnStatus, goalEta } from "./src/engine";
 import TodayScreen from "./src/screens/TodayScreen";
-import RunTimerScreen from "./src/screens/RunTimerScreen";
-import StrengthScreen from "./src/screens/StrengthScreen";
+import PlanScreen from "./src/screens/PlanScreen";
+import LogScreen from "./src/screens/LogScreen";
 import ProgressScreen from "./src/screens/ProgressScreen";
-import DevicesScreen from "./src/screens/DevicesScreen";
-import GamesScreen from "./src/screens/GamesScreen";
 
-// ---- shared app state ----
-export const LogContext = createContext(null);
-export const useLog = () => useContext(LogContext);
-
+const Ctx = createContext(null);
+export const useApp = () => useContext(Ctx);
 const Tab = createBottomTabNavigator();
 
-const navTheme = {
-  ...DefaultTheme,
-  colors: { ...DefaultTheme.colors, background: C.bg, card: C.panel, border: C.line, text: C.ink },
-};
-
-export default function App(){
-  const [state, setState] = useState({ logs:{}, bodyWeights:[], games:[] });
+export default function App() {
+  const T = useT();
+  const scheme = useColorScheme();
+  const [state, setState] = useState(emptyState());
   const [loaded, setLoaded] = useState(false);
+  const [today, setToday] = useState(isoDay());
 
-  useEffect(()=>{ (async()=>{ setState(await loadState()); setLoaded(true); })(); },[]);
-  useEffect(()=>{ if(loaded) saveState(state); },[state, loaded]);
+  useEffect(() => { (async () => { setState(await loadState()); setLoaded(true); })(); }, []);
+  useEffect(() => { if (loaded) saveState(state); }, [state, loaded]);
+  // The plan is derived from today's date, so refresh it when the app comes back.
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (s) => { if (s === "active") setToday(isoDay()); });
+    return () => sub.remove();
+  }, []);
 
-  const logDay = (iso, patch) =>
-    setState(s => ({ ...s, logs: { ...s.logs, [iso]: { ...(s.logs[iso]||{}), ...patch } } }));
-  const logRunToday = (rec) =>
-    logDay(isoDay(new Date()), { type:"run", done:true, ...rec });
-  const addWeight = (kg) =>
-    setState(s => ({ ...s, bodyWeights:[
-      ...s.bodyWeights.filter(x=>x.iso!==isoDay(new Date())),
-      { iso: isoDay(new Date()), kg } ] }));
-  const addGame = (game) =>
-    setState(s => ({ ...s, games: [ ...s.games.filter(g=>g.iso!==game.iso), game ]
-      .sort((a,b)=>a.iso<b.iso?-1:1) }));
-  const removeGame = (iso) =>
-    setState(s => ({ ...s, games: s.games.filter(g=>g.iso!==iso) }));
+  const ctx = useMemo(() => ({
+    state, today, loaded,
+    act: (name, ...args) => setState((s) => R[name](s, ...args)),
+    plan: buildPlan(state, today, 21),
+    prog: deriveStage(state, today),
+    inj: injuryStatus(state, today),
+    ret: returnStatus(state),
+    eta: goalEta(state, today),
+  }), [state, today, loaded]);
 
-  const ctx = { ...state, logDay, logRunToday, addWeight, addGame, removeGame };
-
-  const icon = (name) => ({ color, size }) => <Ionicons name={name} size={size} color={color}/>;
+  const base = scheme === "dark" ? DarkTheme : DefaultTheme;
+  const nav = { ...base, colors: { ...base.colors, background: T.bg, card: T.panel, border: T.line, text: T.ink, primary: T.pitch } };
+  const icon = (name) => ({ color, size, focused }) => <Ionicons name={focused ? name : `${name}-outline`} size={size} color={color} />;
 
   return (
-    <LogContext.Provider value={ctx}>
-      <StatusBar style="light"/>
-      <NavigationContainer theme={navTheme}>
-        <Tab.Navigator
-          screenOptions={{
-            headerStyle:{ backgroundColor:C.bg }, headerTintColor:C.ink,
-            tabBarStyle:{ backgroundColor:C.panel, borderTopColor:C.line },
-            tabBarActiveTintColor:C.accent, tabBarInactiveTintColor:C.muted,
-          }}>
-          <Tab.Screen name="Today" component={TodayScreen}
-            options={{ tabBarIcon: icon("calendar-outline") }}/>
-          <Tab.Screen name="Run" component={RunTimerScreen}
-            options={{ tabBarIcon: icon("pulse-outline") }}/>
-          <Tab.Screen name="Strength" component={StrengthScreen}
-            options={{ tabBarIcon: icon("barbell-outline") }}/>
-          <Tab.Screen name="Games" component={GamesScreen}
-            options={{ tabBarIcon: icon("baseball-outline") }}/>
-          <Tab.Screen name="Progress" component={ProgressScreen}
-            options={{ tabBarIcon: icon("stats-chart-outline") }}/>
-          <Tab.Screen name="Devices" component={DevicesScreen}
-            options={{ tabBarIcon: icon("watch-outline") }}/>
-        </Tab.Navigator>
-      </NavigationContainer>
-    </LogContext.Provider>
+    <SafeAreaProvider>
+      <Ctx.Provider value={ctx}>
+        <StatusBar style={T.dark ? "light" : "dark"} />
+        <NavigationContainer theme={nav}>
+          <Tab.Navigator screenOptions={{ headerShown: false, tabBarActiveTintColor: T.pitch, tabBarInactiveTintColor: T.muted,
+            tabBarStyle: { backgroundColor: T.panel, borderTopColor: T.line }, tabBarLabelStyle: { fontSize: 11, fontWeight: "700" } }}>
+            <Tab.Screen name="Today" component={TodayScreen} options={{ tabBarIcon: icon("today") }} />
+            <Tab.Screen name="Plan" component={PlanScreen} options={{ tabBarIcon: icon("calendar") }} />
+            <Tab.Screen name="Log" component={LogScreen} options={{ tabBarIcon: icon("add-circle") }} />
+            <Tab.Screen name="Progress" component={ProgressScreen} options={{ tabBarIcon: icon("stats-chart") }} />
+          </Tab.Navigator>
+        </NavigationContainer>
+      </Ctx.Provider>
+    </SafeAreaProvider>
   );
 }

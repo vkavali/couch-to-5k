@@ -1,68 +1,95 @@
 import React, { useState } from "react";
-import { View, Text, TextInput, TouchableOpacity, ScrollView } from "react-native";
-import { useLog } from "../../App";
-import { C } from "../lib/theme";
-import { isoDay, DAY_MS } from "../lib/plan";
+import { View, Text, TouchableOpacity } from "react-native";
+import Svg, { Polyline, Circle } from "react-native-svg";
+import { Ionicons } from "@expo/vector-icons";
+import { useT, TYPE, typeColor } from "../ui/theme";
+import { Screen, Card, H1, Label, Muted, Body, Btn, Row, Tile, Ladder } from "../ui/kit";
+import { stats, fmtDate, mmss } from "../engine";
+import { isBleAvailable, connectHeartRate } from "../lib/hr";
+import { useApp } from "../../App";
 
-export default function ProgressScreen(){
-  const { logs, bodyWeights, addWeight } = useLog();
-  const [w, setW] = useState("");
+const NAMES = { run: "Run", strength: "Strength", walkTest: "Walk test", rehab: "Recovery work" };
 
-  const entries = Object.entries(logs).filter(([,v])=>v.done).sort((a,b)=>a[0]<b[0]?1:-1);
-  const runs = entries.filter(([,v])=>v.type==="run");
-  const longest = runs.reduce((m,[,v])=>Math.max(m, v.duration||0), 0);
-
-  let streak = 0; let d = new Date(); d = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  while(logs[isoDay(d)]?.done){ streak++; d = new Date(d - DAY_MS); }
-
+function WeightChart({ weights }) {
+  const T = useT();
+  const [w, setW] = useState(0);
+  if (weights.length < 2) return <Muted>Log your weight twice on the Log tab to see the trend.</Muted>;
+  const H = 110, vals = weights.map((x) => x.kg), lo = Math.min(...vals), hi = Math.max(...vals), span = hi - lo || 1;
+  const pts = weights.map((x, i) => [8 + (i / (weights.length - 1)) * Math.max(0, w - 16), 10 + (1 - (x.kg - lo) / span) * (H - 20)]);
   return (
-    <ScrollView style={{ flex:1, backgroundColor:C.bg }} contentContainerStyle={{ padding:18 }}>
-      <View style={{ flexDirection:"row", gap:10, marginBottom:16 }}>
-        <Stat label="Day streak" value={streak} unit="days" color={C.accent}/>
-        <Stat label="Runs done" value={runs.length} unit="" color={C.jog}/>
-        <Stat label="Longest run" value={longest?Math.round(longest/60):0} unit="min" color={C.walk}/>
-      </View>
-
-      <View style={{ backgroundColor:C.panel, borderRadius:14, padding:14, marginBottom:16 }}>
-        <Text style={{ color:C.ink, fontWeight:"700", marginBottom:8 }}>Log body weight</Text>
-        <View style={{ flexDirection:"row", gap:8 }}>
-          <TextInput value={w} onChangeText={setW} keyboardType="decimal-pad" placeholder="kg"
-            placeholderTextColor={C.muted}
-            style={{ flex:1, backgroundColor:C.panel2, borderColor:C.line, borderWidth:1,
-              borderRadius:10, color:C.ink, padding:10, fontSize:15 }}/>
-          <TouchableOpacity onPress={()=>{ const kg=parseFloat(w); if(kg){ addWeight(kg); setW(""); } }}
-            style={{ backgroundColor:C.accent, borderRadius:10, paddingHorizontal:18, justifyContent:"center" }}>
-            <Text style={{ color:"#04211a", fontWeight:"700" }}>Add</Text></TouchableOpacity>
-        </View>
-        {bodyWeights.length>0 && <Text style={{ color:C.muted, fontSize:12, marginTop:8 }}>
-          Latest: {bodyWeights[bodyWeights.length-1].kg} kg · {bodyWeights.length} entries logged
-        </Text>}
-      </View>
-
-      <Text style={{ color:C.ink, fontWeight:"700", marginBottom:8 }}>Recent sessions</Text>
-      {entries.length===0 && <Text style={{ color:C.muted, fontSize:13 }}>
-        Nothing logged yet. Finish a workout and it shows up here.</Text>}
-      {entries.slice(0,30).map(([iso,v])=>(
-        <View key={iso} style={{ flexDirection:"row", alignItems:"center", gap:10,
-          backgroundColor:C.panel, borderRadius:10, padding:11, marginBottom:7 }}>
-          <View style={{ width:8, height:8, borderRadius:4,
-            backgroundColor: v.type==="run"?C.jog : v.type==="strength"?C.str : C.rest }}/>
-          <Text style={{ color:C.ink, fontWeight:"700", fontSize:13, textTransform:"capitalize" }}>{v.type}</Text>
-          <Text style={{ marginLeft:"auto", color:C.muted, fontSize:12 }}>
-            {iso}{v.duration?` · ${Math.round(v.duration/60)} min`:""}{v.distance?` · ${v.distance} km`:""}
-          </Text>
-        </View>
-      ))}
-    </ScrollView>
+    <View onLayout={(e) => setW(e.nativeEvent.layout.width)} style={{ height: H }}>
+      {w > 0 ? (
+        <Svg width={w} height={H}>
+          <Polyline points={pts.map((p) => p.join(",")).join(" ")} fill="none" stroke={T.pitch} strokeWidth={3} strokeLinejoin="round" strokeLinecap="round" />
+          {pts.map((p, i) => <Circle key={i} cx={p[0]} cy={p[1]} r={i === pts.length - 1 ? 5 : 3} fill={T.pitch} />)}
+        </Svg>
+      ) : null}
+    </View>
   );
 }
 
-function Stat({ label, value, unit, color }){
+export default function ProgressScreen() {
+  const T = useT();
+  const { state, today, prog, act } = useApp();
+  const st = stats(state, today);
+  const [hr, setHr] = useState(null); const [status, setStatus] = useState("idle");
+  const ble = isBleAvailable();
+  const connect = async () => {
+    if (!ble) return setStatus("nobuild");
+    setStatus("connecting");
+    try { await connectHeartRate((bpm) => { setHr(bpm); setStatus("connected"); }, () => setStatus("error")); } catch { setStatus("error"); }
+  };
+  const hrText = { idle: "Not connected", connecting: "Scanning…", connected: `${hr ?? "--"} bpm`, error: "Could not connect", nobuild: "Needs the installed app build" }[status];
+  const history = [...state.sessions].reverse().slice(0, 20);
+  const w = state.weights;
+
   return (
-    <View style={{ flex:1, backgroundColor:C.panel, borderRadius:14, paddingVertical:14, alignItems:"center" }}>
-      <Text style={{ fontSize:26, fontWeight:"800", color }}>{value}</Text>
-      <Text style={{ fontSize:10, color:C.muted }}>{unit}</Text>
-      <Text style={{ fontSize:11, color:C.muted, marginTop:2 }}>{label}</Text>
-    </View>
+    <Screen>
+      <View style={{ gap: 2 }}><Label>Since you started</Label><H1>Progress</H1></View>
+      <Row><Tile label="Runs" value={String(st.runs)} sub={`${st.strength} strength`} /><Tile label="Distance" value={`${st.km}`} sub="km logged" /></Row>
+      <Row><Tile label="Longest run" value={mmss(st.longest)} sub="moving time" /><Tile label="Active weeks" value={String(st.weeks)} sub="in a row, 2+ runs" /></Row>
+
+      <Card>
+        <View style={{ flexDirection: "row", alignItems: "center" }}>
+          <Label>Stage {prog.stage} of 12</Label>
+          <Text style={{ marginLeft: "auto", color: T.muted, fontSize: 13, fontWeight: "700" }}>{prog.count}/3 runs</Text>
+        </View>
+        <Ladder stage={prog.stage} count={prog.count} />
+      </Card>
+
+      <Card>
+        <View style={{ flexDirection: "row", alignItems: "center" }}>
+          <Label>Body weight</Label>
+          {w.length ? <Text style={{ marginLeft: "auto", color: T.ink, fontSize: 15, fontWeight: "800" }}>{w[w.length - 1].kg} kg</Text> : null}
+        </View>
+        <WeightChart weights={w.slice(-30)} />
+      </Card>
+
+      <Card style={{ gap: 0 }}>
+        <Label>History</Label>
+        {!history.length ? <Muted style={{ paddingTop: 8 }}>Finished sessions show up here.</Muted> : null}
+        {history.map((s, i) => (
+          <View key={s.id} style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10, borderTopWidth: i ? 1 : 0, borderColor: T.line, marginTop: i ? 0 : 8 }}>
+            <Ionicons name={(TYPE[s.kind] || TYPE.rest).icon} size={20} color={typeColor(T, s.kind)} />
+            <View style={{ flex: 1 }}>
+              <Body style={{ fontWeight: "700" }}>{NAMES[s.kind] || s.kind}{s.kind === "run" ? `, stage ${s.stage}` : ""}{s.completed === false ? " (stopped early)" : ""}</Body>
+              <Muted>{fmtDate(s.iso)}{s.secs ? ` · ${mmss(s.secs)}` : ""}{s.km ? ` · ${s.km} km` : ""}{s.pain ? ` · pain ${s.pain}/10` : ""}</Muted>
+            </View>
+            <TouchableOpacity onPress={() => act("removeSession", s.id)} accessibilityLabel="Delete session" style={{ width: 40, height: 40, alignItems: "center", justifyContent: "center" }}>
+              <Ionicons name="trash-outline" size={19} color={T.muted} />
+            </TouchableOpacity>
+          </View>
+        ))}
+      </Card>
+
+      <Card>
+        <View style={{ flexDirection: "row", alignItems: "center" }}>
+          <Label>Heart-rate strap</Label>
+          <Text style={{ marginLeft: "auto", color: status === "connected" ? T.ok : T.muted, fontSize: 13, fontWeight: "700" }}>{hrText}</Text>
+        </View>
+        <Muted>Any standard Bluetooth strap, or a Garmin watch with Broadcast HR turned on. Works in the installed build, not in Expo Go or the web preview.</Muted>
+        <Btn kind="soft" label={status === "connected" ? "Reconnect" : "Connect"} icon="heart" onPress={connect} />
+      </Card>
+    </Screen>
   );
 }

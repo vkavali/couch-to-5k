@@ -1,5 +1,10 @@
 # Couch → 5K
 
+> **v2 (branch `rebuild-v2`)**: fresh rebuild with an adaptive plan engine. See `CLAUDE.md` and `DECISIONS.md`. Sections below that describe the fixed 84-day plan are from v0.1.0.
+
+![v2 preview](docs/preview-v2.png)
+
+
 A native iPhone/Android training app for a 12-week couch-to-5K plan: guided
 interval run timer, dumbbell strength tracker, progress logging, on-device
 heart-rate (Bluetooth), and an optional Garmin Connect sync backend.
