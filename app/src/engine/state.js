@@ -1,21 +1,30 @@
 // State shape (storage key c25k:v2) and the pure reducers that change it.
 import { isoDay, addDays } from "./dates.js";
 
-export const emptyState = () => ({ v: 2, sessions: [], events: [], injuries: [], checkins: [], overrides: [], weights: [] });
+export const emptyState = () => ({ v: 2, sessions: [], events: [], injuries: [], checkins: [], overrides: [], weights: [], foods: [], profile: {}, swaps: {}, tombstones: {} });
 const uid = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 const byIso = (a, b) => (a.iso < b.iso ? -1 : a.iso > b.iso ? 1 : 0);
 
+const now = () => Date.now();
+const dead = (s, key) => ({ ...(s.tombstones || {}), [key]: now() });
+
+// Every write stamps ts so two devices can be merged (see sync.js).
 export const R = {
-  addSession: (s, sess) => ({ ...s, sessions: [...s.sessions, { id: uid(), completed: true, ...sess }].sort(byIso) }),
-  removeSession: (s, id) => ({ ...s, sessions: s.sessions.filter((x) => x.id !== id) }),
-  saveEvent: (s, ev) => ({ ...s, events: [...s.events.filter((e) => e.iso !== ev.iso), { id: uid(), ...ev }].sort(byIso) }),
-  removeEvent: (s, iso) => ({ ...s, events: s.events.filter((e) => e.iso !== iso) }),
-  reportInjury: (s, inj) => ({ ...s, injuries: [...s.injuries.filter((i) => i.clearedIso), { id: uid(), clearedIso: null, ...inj }],
-    checkins: inj.pain == null ? s.checkins : [...s.checkins.filter((c) => c.iso !== inj.startIso), { iso: inj.startIso, pain: inj.pain, bendOk: false }].sort(byIso) }),
-  checkin: (s, c) => ({ ...s, checkins: [...s.checkins.filter((x) => x.iso !== c.iso), c].sort(byIso) }),
-  clearInjury: (s, iso) => ({ ...s, injuries: s.injuries.map((i) => (i.clearedIso ? i : { ...i, clearedIso: iso })) }),
-  setStage: (s, iso, stage) => ({ ...s, overrides: [...s.overrides.filter((o) => o.iso !== iso), { iso, stage }].sort(byIso) }),
-  addWeight: (s, iso, kg) => ({ ...s, weights: [...s.weights.filter((w) => w.iso !== iso), { iso, kg }].sort(byIso) }),
+  setProfile: (s, patch) => ({ ...s, profile: { ...(s.profile || {}), ...patch, ts: now() } }),
+  addFood: (s, f) => ({ ...s, foods: [...(s.foods || []), { id: uid(), ts: now(), ...f }] }),
+  removeFood: (s, id) => ({ ...s, foods: (s.foods || []).filter((x) => x.id !== id), tombstones: dead(s, `foods:${id}`) }),
+  swapMeal: (s, iso, slot) => ({ ...s, swaps: { ...(s.swaps || {}), [`${iso}:${slot}`]: ((s.swaps || {})[`${iso}:${slot}`] || 0) + 1 } }),
+  replaceAll: (_s, next) => next,
+  addSession: (s, sess) => ({ ...s, sessions: [...s.sessions, { id: uid(), ts: now(), completed: true, ...sess }].sort(byIso) }),
+  removeSession: (s, id) => ({ ...s, sessions: s.sessions.filter((x) => x.id !== id), tombstones: dead(s, `sessions:${id}`) }),
+  saveEvent: (s, ev) => ({ ...s, events: [...s.events.filter((e) => e.iso !== ev.iso), { id: uid(), ts: now(), ...ev }].sort(byIso) }),
+  removeEvent: (s, iso) => ({ ...s, events: s.events.filter((e) => e.iso !== iso), tombstones: dead(s, `events:${iso}`) }),
+  reportInjury: (s, inj) => ({ ...s, injuries: [...s.injuries.filter((i) => i.clearedIso), { id: uid(), ts: now(), clearedIso: null, ...inj }],
+    checkins: inj.pain == null ? s.checkins : [...s.checkins.filter((c) => c.iso !== inj.startIso), { iso: inj.startIso, pain: inj.pain, bendOk: false, ts: now() }].sort(byIso) }),
+  checkin: (s, c) => ({ ...s, checkins: [...s.checkins.filter((x) => x.iso !== c.iso), { ...c, ts: now() }].sort(byIso) }),
+  clearInjury: (s, iso) => ({ ...s, injuries: s.injuries.map((i) => (i.clearedIso ? i : { ...i, clearedIso: iso, ts: now() })) }),
+  setStage: (s, iso, stage) => ({ ...s, overrides: [...s.overrides.filter((o) => o.iso !== iso), { iso, stage, ts: now() }].sort(byIso) }),
+  addWeight: (s, iso, kg) => ({ ...s, weights: [...s.weights.filter((w) => w.iso !== iso), { iso, kg, ts: now() }].sort(byIso) }),
 };
 
 // v0.1.0 data (key fitlog:v1): logs keyed by UTC date, games with a picked intensity.

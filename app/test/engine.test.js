@@ -108,3 +108,89 @@ test("goal date exists and moves out with an injury", () => {
   const b = E.goalEta(E.R.reportInjury(S(), { area: "hip", startIso: T, pain: 5 }), T);
   assert.ok(a.iso && b.iso >= a.iso);
 });
+
+// ---- nutrition, sync, gps ----
+const prof = (o = {}) => ({ ...S({ weights: [{ iso: T, kg: 80 }] }), profile: { sex: "m", age: 30, heightCm: 175, goal: "lose", diet: "any", ...o } });
+
+test("no targets until the profile is filled in", () => {
+  assert.equal(E.targets(S(), T, null), null);
+  assert.equal(E.profileReady(prof()), true);
+});
+
+test("targets follow Mifflin-St Jeor with a capped deficit and enough protein", () => {
+  const t = E.targets(prof(), T, { type: "rest" });
+  assert.equal(t.bmr, 1749); // 10*80 + 6.25*175 - 5*30 + 5
+  assert.ok(t.adj >= -500 && t.adj < 0);
+  assert.ok(t.kcal >= t.bmr && t.kcal < t.tdee);
+  assert.equal(t.protein, 160);
+  assert.ok(Math.abs(t.protein * 4 + t.carbs * 4 + t.fat * 9 - t.kcal) < 15);
+});
+
+test("run and match days get more food; a heavy match removes the deficit", () => {
+  const rest = E.targets(prof(), T, { type: "rest" });
+  const runDay = E.targets(prof(), T, { type: "run", stage: 6 });
+  const match = E.targets(prof(), T, { type: "match", load: { level: "high" } });
+  assert.ok(runDay.kcal > rest.kcal);
+  assert.equal(match.adj, 0); assert.ok(match.note);
+});
+
+test("never recommends below the safe floor, and pauses the deficit on fast loss", () => {
+  const small = E.targets({ ...prof({ sex: "f", age: 60, heightCm: 150 }), weights: [{ iso: T, kg: 45 }] }, T, { type: "rest" });
+  assert.ok(small.kcal >= 1200 && small.kcal >= small.bmr - 5);
+  const fast = { ...prof(), weights: [{ iso: "2026-11-02", kg: 84 }, { iso: T, kg: 80 }] };
+  assert.equal(E.targets(fast, T, { type: "rest" }).adj, 0);
+});
+
+test("recommended meals land near the target and respect the diet", () => {
+  for (const diet of ["any", "egg", "veg"]) {
+    const s = prof({ diet }); const t = E.targets(s, T, { type: "run", stage: 4 });
+    const meals = E.recommendMeals(s, T, { type: "run", stage: 4 }, t);
+    assert.equal(meals.length, 4);
+    const tot = E.sumFoods(meals.map((m) => m.total));
+    assert.ok(Math.abs(tot.kcal - t.kcal) / t.kcal < 0.15, `${diet} kcal ${tot.kcal} vs ${t.kcal}`);
+    assert.ok(tot.p >= t.protein - 25, `${diet} protein ${tot.p} vs ${t.protein}`);
+    const ids = meals.flatMap((m) => m.items.map((i) => i.foodId));
+    if (diet !== "any") assert.ok(!ids.some((id) => E.foodById[id].tag === "meat"));
+    if (diet === "veg") assert.ok(!ids.some((id) => E.foodById[id].tag === "egg"));
+    assert.ok(meals.some((m) => m.tip));
+  }
+});
+
+test("swapping a meal changes the recommendation", () => {
+  const s = prof(); const t = E.targets(s, T, null);
+  const a = E.recommendMeals(s, T, null, t)[3].name;
+  const b = E.recommendMeals(E.R.swapMeal(s, T, "dinner"), T, null, t)[3].name;
+  assert.notEqual(a, b);
+});
+
+test("Open Food Facts product maps to a food", () => {
+  const f = E.foodFromOff({ code: "123", product: { product_name: "Bar", brands: "X", nutriments: { "energy-kcal_100g": 400, proteins_100g: 20, carbohydrates_100g: 50, fat_100g: 12 } } });
+  assert.deepEqual([f.kcal, f.p, f.serving, f.name], [400, 20, "100 g", "X Bar"]);
+  assert.equal(E.foodFromOff({ product: { nutriments: {} } }), null);
+});
+
+test("sync merge keeps both devices' records, newest write wins, deletes stick", () => {
+  let phone = E.R.addSession(S(), run("2026-11-20", 1)); const id = phone.sessions[0].id;
+  let web = JSON.parse(JSON.stringify(phone));
+  web = E.R.addSession(web, run("2026-11-22", 1));
+  phone = E.R.removeSession(phone, id);
+  phone = E.R.addWeight(phone, T, 80);
+  const m = E.mergeStates(phone, web);
+  assert.deepEqual(m.sessions.map((x) => x.iso), ["2026-11-22"]);
+  assert.equal(m.weights.length, 1);
+  assert.ok(E.sameState(E.mergeStates(m, web).sessions, m.sessions)); // merging again changes nothing
+  const older = { ...S(), weights: [{ iso: T, kg: 82, ts: 1 }] }, newer = { ...S(), weights: [{ iso: T, kg: 80, ts: 2 }] };
+  assert.equal(E.mergeStates(older, newer).weights[0].kg, 80);
+  assert.equal(E.mergeStates(newer, older).weights[0].kg, 80);
+});
+
+test("gps distance ignores jitter, bad accuracy and jumps", () => {
+  let tr = E.emptyTrack(); const p = (lat, t, acc = 5) => ({ lat, lon: -96.78, t: t * 1000, acc });
+  tr = E.addPoint(tr, p(33.3, 0));
+  tr = E.addPoint(tr, p(33.30001, 1)); // ~1 m: jitter
+  tr = E.addPoint(tr, p(33.3009, 30)); // ~100 m in 30 s
+  tr = E.addPoint(tr, p(33.31, 31, 80)); // bad accuracy
+  tr = E.addPoint(tr, p(33.4, 32)); // 11 km jump
+  assert.ok(tr.metres > 95 && tr.metres < 105, String(tr.metres));
+  assert.equal(Math.round(E.pace(300, 1000)), 300);
+});

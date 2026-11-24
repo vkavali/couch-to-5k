@@ -126,7 +126,7 @@ export function Banner({ icon = "alert-circle", text, color, children }) {
 export function Field({ value, onChangeText, placeholder, keyboardType = "decimal-pad", style }) {
   const T = useT();
   return <TextInput value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor={T.muted} keyboardType={keyboardType}
-    style={[{ flex: 1, minHeight: 48, borderRadius: 12, backgroundColor: T.panel2, color: T.ink, paddingHorizontal: 14, fontSize: 16 }, style]} />;
+    style={[{ flex: 1, minWidth: 0, minHeight: 48, borderRadius: 12, backgroundColor: T.panel2, color: T.ink, paddingHorizontal: 14, fontSize: 16 }, style]} />;
 }
 export function Sheet({ visible, title, onClose, children }) {
   const T = useT();

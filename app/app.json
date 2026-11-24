@@ -13,7 +13,9 @@
       "resizeMode": "contain",
       "backgroundColor": "#0e1418"
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.vkavali.couchto5k",
@@ -21,8 +23,11 @@
       "infoPlist": {
         "NSBluetoothAlwaysUsageDescription": "Couch to 5K connects to a Bluetooth heart-rate monitor to show your live heart rate during runs.",
         "NSBluetoothPeripheralUsageDescription": "Couch to 5K connects to a Bluetooth heart-rate monitor to show your live heart rate during runs.",
-        "ITSAppUsesNonExemptEncryption": false
-      }
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSLocationWhenInUseUsageDescription": "Couch to 5K uses your location during outdoor runs to measure distance and pace.",
+        "NSCameraUsageDescription": "Couch to 5K uses the camera to scan food barcodes."
+      },
+      "usesAppleSignIn": true
     },
     "android": {
       "package": "com.vkavali.couchto5k",
@@ -38,6 +43,22 @@
       "eas": {
         "projectId": "REPLACE_WITH_EAS_PROJECT_ID"
       }
-    }
+    },
+    "plugins": [
+      "expo-apple-authentication",
+      "expo-secure-store",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Couch to 5K uses your location during outdoor runs to measure distance and pace."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Couch to 5K uses the camera to scan food barcodes."
+        }
+      ]
+    ]
   }
 }

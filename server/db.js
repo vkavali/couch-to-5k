@@ -20,9 +20,10 @@ const { Pool } = require("pg");
 
 const connectionString = process.env.DATABASE_URL;
 // Railway Postgres requires TLS; allow self-signed in that managed context.
+// PGSSL=off is for a local Postgres in tests; Railway keeps TLS on.
 const pool = new Pool(
   connectionString
-    ? { connectionString, ssl: { rejectUnauthorized: false } }
+    ? { connectionString, ssl: process.env.PGSSL === "off" ? false : { rejectUnauthorized: false } }
     : {} // no DATABASE_URL -> pool is unused; /state routes report "not configured"
 );
 
@@ -97,6 +98,15 @@ CREATE TABLE IF NOT EXISTS weights (
   iso      date NOT NULL,
   kg       numeric NOT NULL,
   PRIMARY KEY (user_id, iso)
+);
+
+-- v2 app (adaptive plan rebuild): one JSONB document per user. The phone merges
+-- record by record before every write (see app/src/engine/sync.js), so the server
+-- only stores the merged document. The v1 tables above are untouched.
+CREATE TABLE IF NOT EXISTS state_v2 (
+  user_id     uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  data        jsonb NOT NULL,
+  updated_at  timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS adjustments (
@@ -237,4 +247,18 @@ async function hasState(userId) {
   return rows.length > 0;
 }
 
-module.exports = { hasDb, init, upsertUser, readState, writeState, deleteUser, hasState };
+async function readStateV2(userId) {
+  const { rows } = await pool.query(`SELECT data, updated_at FROM state_v2 WHERE user_id=$1`, [userId]);
+  return rows[0] ? { state: rows[0].data, updatedAt: rows[0].updated_at } : { state: null, updatedAt: null };
+}
+async function writeStateV2(userId, state) {
+  const { rows } = await pool.query(
+    `INSERT INTO state_v2 (user_id, data, updated_at) VALUES ($1, $2, now())
+     ON CONFLICT (user_id) DO UPDATE SET data=$2, updated_at=now() RETURNING updated_at`,
+    [userId, JSON.stringify(state)]
+  );
+  return rows[0].updated_at;
+}
+const end = () => pool.end();
+
+module.exports = { readStateV2, writeStateV2, end, hasDb, init, upsertUser, readState, writeState, deleteUser, hasState };

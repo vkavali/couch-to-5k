@@ -5,7 +5,9 @@ import { View, Text, Vibration } from "react-native";
 import Svg, { Circle } from "react-native-svg";
 import { useT } from "../ui/theme";
 import { Sheet, Card, Btn, Row, Label, Muted, H2, PainScale, Chips, Field, Banner } from "../ui/kit";
-import { buildPhases, walkTestPhases, totalSecs, mmss } from "../engine";
+import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
+import { buildPhases, walkTestPhases, totalSecs, mmss, addPoint, emptyTrack, pace } from "../engine";
+import { startTracking } from "../lib/gps";
 import { useApp } from "../../App";
 
 const EFFORT = [{ key: 3, label: "Easy" }, { key: 5, label: "Steady" }, { key: 7, label: "Hard" }, { key: 9, label: "Max" }];
@@ -22,12 +24,28 @@ export default function Timer({ visible, onClose, day }) {
   const clock = useRef({ start: 0, base: 0 });
   const lastPhase = useRef(0);
   const [km, setKm] = useState(""); const [rpe, setRpe] = useState(5); const [pain, setPain] = useState(0);
+  // Outdoor runs can measure distance by GPS; treadmill runs are typed in afterwards.
+  const [where, setWhere] = useState("treadmill");
+  const [track, setTrack] = useState(emptyTrack()); const [gpsErr, setGpsErr] = useState(null);
+  const stopGps = useRef(null);
 
   useEffect(() => {
     if (!visible || !day) return;
     setElapsed(0); setOffset(0); setRunning(false); setDone(false); setKm(""); setRpe(5); setPain(0);
     clock.current = { start: 0, base: 0 }; lastPhase.current = 0;
+    setTrack(emptyTrack()); setGpsErr(null);
   }, [visible, day?.iso, day?.stage, walk]);
+
+  // GPS and keep-awake only while the clock is running.
+  useEffect(() => {
+    if (!running) return;
+    let off = false;
+    activateKeepAwakeAsync("run").catch(() => {});
+    if (where === "outdoor") startTracking((pt) => setTrack((t) => addPoint(t, pt)), setGpsErr).then((stop) => { if (off) stop?.(); else stopGps.current = stop; });
+    return () => { off = true; stopGps.current?.(); stopGps.current = null; deactivateKeepAwake("run").catch?.(() => {}); setTrack((t) => ({ ...t, last: null })); };
+  }, [running, where]);
+  useEffect(() => { if (done && track.metres > 50) setKm((track.metres / 1000).toFixed(2)); }, [done]);
+  const gpsPace = pace(elapsed, track.metres);
 
   useEffect(() => {
     if (!running) return;
@@ -53,7 +71,7 @@ export default function Timer({ visible, onClose, day }) {
   const finishEarly = () => { clock.current.base = elapsed; setRunning(false); setDone(true); };
   const save = () => {
     const completed = pos >= total;
-    act("addSession", { iso: today, kind: walk ? "walkTest" : "run", stage: day.stage, secs: Math.round(elapsed), km: Number(km) || 0, rpe, pain, completed });
+    act("addSession", { iso: today, kind: walk ? "walkTest" : "run", stage: day.stage, secs: Math.round(elapsed), km: Number(km) || 0, rpe, pain, completed, where: walk ? undefined : where });
     onClose();
   };
 
@@ -81,6 +99,14 @@ export default function Timer({ visible, onClose, day }) {
               <View key={i} style={{ flex: p.secs, height: 8, borderRadius: 4, backgroundColor: i < idx ? T.muted : i === idx ? (p.kind === "jog" ? T.cherry : T.pitch) : T.panel2 }} />
             ))}
           </View>
+          {!walk ? <Chips options={[{ key: "treadmill", label: "Treadmill" }, { key: "outdoor", label: "Outdoor, GPS" }]} value={where} onChange={setWhere} /> : null}
+          {where === "outdoor" && !walk ? (
+            <Row>
+              <Card style={{ flex: 1 }}><Label>Distance</Label><H2>{(track.metres / 1000).toFixed(2)} km</H2></Card>
+              <Card style={{ flex: 1 }}><Label>Pace</Label><H2>{gpsPace ? `${mmss(gpsPace)} /km` : "–"}</H2></Card>
+            </Row>
+          ) : null}
+          {gpsErr && where === "outdoor" ? <Banner text={`${gpsErr} Distance can be typed in after the run.`} /> : null}
           <Row>
             <Card style={{ flex: 1 }}><Label>Elapsed</Label><H2>{mmss(elapsed)}</H2></Card>
             <Card style={{ flex: 1 }}><Label>Left</Label><H2>{mmss(total - pos)}</H2></Card>
@@ -104,7 +130,7 @@ export default function Timer({ visible, onClose, day }) {
             <Label>Pain during or after</Label>
             <PainScale value={pain} onChange={setPain} />
             {!walk ? (<><Label>Effort</Label><Chips options={EFFORT} value={rpe} onChange={setRpe} />
-              <Label>Distance, optional</Label><Row><Field value={km} onChangeText={setKm} placeholder="km" /></Row></>) : null}
+              <Label>{track.metres > 50 ? "Distance from GPS" : "Distance, optional"}</Label><Row><Field value={km} onChangeText={setKm} placeholder="km" /></Row></>) : null}
           </Card>
           {walk && pain > 1 ? <Banner text="Pain above 1 means the test is not passed yet. Give it another day and retest." /> : null}
           {!walk && pain >= 4 ? <Banner color={T.cherry} text="Pain of 4 or more: this run will not count, and Today will ask you to report it." /> : null}

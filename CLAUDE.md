@@ -8,9 +8,12 @@ every day from the user's log. Read `DECISIONS.md` before changing any rule.
   - `stages.js` 12-stage ladder · `progress.js` stage derived by replaying the log
   - `injury.js` hold, check-ins, return steps · `load.js` cricket load from roles
   - `schedule.js` forward plan (`buildPlan`) · `state.js` reducers, v1 migration, stats
-- `app/src/screens/` — Today, Plan, Log, Progress, plus `Timer.js` and `Forms.js` sheets
+  - `nutrition.js` + `foods.js` food targets and recommended meals · `sync.js` two-device merge · `geo.js` GPS distance
+- `app/src/screens/` — Today, Plan, Food, Log, Progress, plus `Timer.js`, `Forms.js`, `SettingsSheet.js`
+- `app/src/lib/` — `gps.js` (expo-location), `off.js` (Open Food Facts barcode lookup), `api.js` (Apple sign-in, sync), `hr.js`, `store.js`
 - `app/src/ui/` — `theme.js` tokens (light/dark), `kit.js` shared components
-- `app/test/engine.test.js` — rule tests. `server/` is unchanged from v0.1.0.
+- `app/test/engine.test.js` — rule tests (21).
+- `server/` — the 1.1.0 server plus `GET/PUT /v2/state` and table `state_v2` for this app. The v1 `/state` routes and tables are untouched; do not change them, the TestFlight 1.1.0 app may still use them.
 
 ## Run
 ```bash
@@ -19,7 +22,10 @@ npm test                 # engine rules, must pass before any commit
 npx expo start           # Expo Go on the phone
 npx expo export -p ios   # bundle check
 npx expo export -p web   # browser preview build
+# server: needs a Postgres; skipped without DATABASE_URL
+cd ../server && DATABASE_URL=postgres://... PGSSL=off SESSION_SECRET=x npm test
 ```
+Accounts are optional. Set `EXPO_PUBLIC_API_URL` (see `app/.env.example`) to the Railway URL to turn sync on.
 
 ## Rules for changes
 - Screens never decide training. They display what `buildPlan` returns.
@@ -30,10 +36,9 @@ npx expo export -p web   # browser preview build
 - Heart rate needs an installed dev build (`react-native-ble-plx`), not Expo Go.
 
 ## Not done yet
-1. Live heart rate inside the run timer (strap connect works on the Progress tab only).
-2. Audio cues and keep-screen-awake during a run (vibration only today).
-3. Daily notification for the session and the injury check-in.
-4. Garmin sync (still gated on Garmin developer approval; `server/` skeleton).
-5. Not yet run on a physical iPhone: bundles for iOS and tested in a browser build only.
-6. Features from the separate 1.1.0 "Cover Drive" codebase (nutrition, meal planning,
-   accounts) are not in this repo.
+1. Not yet run on a physical iPhone. Engine and server are tested; screens are checked in a browser build; iOS only bundles.
+2. GPS, barcode camera and Sign in with Apple cannot run in the browser, so they are untested end to end. All three need an installed dev or TestFlight build (not Expo Go for Apple sign-in).
+3. GPS is foreground only: the screen stays awake during a run. No background location.
+4. Live heart rate inside the run timer; audio cues; daily notifications.
+5. Garmin sync (gated on Garmin developer approval).
+6. Meals come from fixed rules and a built-in list of 34 foods. No AI meal generation; the 1.1.0 NUTRITION.md spec was not available.

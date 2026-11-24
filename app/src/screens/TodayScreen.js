@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { View, Text } from "react-native";
+import { View, Text, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useT, TYPE, typeColor } from "../ui/theme";
 import { Screen, Card, H1, H2, Label, Body, Muted, Btn, Row, Tile, Banner, Stepper, Ladder } from "../ui/kit";
@@ -10,7 +10,7 @@ import { InjurySheet, CheckinCard, StrengthSheet, RehabCard } from "./Forms";
 
 export default function TodayScreen({ navigation }) {
   const T = useT();
-  const { state, today, plan, prog, inj, ret, eta, act } = useApp();
+  const { state, today, plan, prog, inj, ret, eta, act, openSettings } = useApp();
   const day = plan[0];
   const [timer, setTimer] = useState(false);
   const [strength, setStrength] = useState(false);
@@ -24,9 +24,14 @@ export default function TodayScreen({ navigation }) {
 
   return (
     <Screen>
-      <View style={{ gap: 2 }}>
-        <Label>{fmtDate(today)}</Label>
-        <H1>{inj ? "Recovery first" : prog.finished5k ? "5K done" : `Stage ${prog.stage} of 12`}</H1>
+      <View style={{ flexDirection: "row", alignItems: "flex-end" }}>
+        <View style={{ flex: 1, gap: 2 }}>
+          <Label>{fmtDate(today)}</Label>
+          <H1>{inj ? "Recovery first" : prog.finished5k ? "5K done" : `Stage ${prog.stage} of 12`}</H1>
+        </View>
+        <TouchableOpacity onPress={openSettings} accessibilityLabel="Profile and account" style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: T.panel2, alignItems: "center", justifyContent: "center" }}>
+          <Ionicons name="person" size={20} color={T.ink} />
+        </TouchableOpacity>
       </View>
 
       {inj?.seeDoctor ? <Banner color={T.cherry} icon="medkit" text={inj.seeDoctor} /> : null}

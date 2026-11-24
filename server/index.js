@@ -153,6 +153,23 @@ app.put("/state", auth.requireAuth, async (req, res) => {
   }
 });
 
+// ---- v2 app state (adaptive plan rebuild). The v1 /state routes above are unchanged. ----
+const V2_LISTS = ["sessions", "events", "injuries", "checkins", "overrides", "weights", "foods"];
+function validV2(state) {
+  return !!state && typeof state === "object" && !Array.isArray(state) && state.v === 2 &&
+    V2_LISTS.every((k) => state[k] === undefined || Array.isArray(state[k]));
+}
+app.get("/v2/state", auth.requireAuth, async (req, res) => {
+  try { res.json(await db.readStateV2(req.userId)); }
+  catch (e) { console.error("readStateV2 failed", String(e).slice(0, 300)); res.status(500).json({ error: "Could not load your data." }); }
+});
+app.put("/v2/state", auth.requireAuth, async (req, res) => {
+  const { state } = req.body || {};
+  if (!validV2(state)) return res.status(400).json({ error: "Missing or malformed state." });
+  try { res.json({ ok: true, updatedAt: await db.writeStateV2(req.userId, state) }); }
+  catch (e) { console.error("writeStateV2 failed", String(e).slice(0, 300)); res.status(500).json({ error: "Could not save your data." }); }
+});
+
 // Delete the account and ALL its data (required by App Store guideline 5.1.1).
 app.delete("/me", auth.requireAuth, async (req, res) => {
   try {
@@ -277,4 +294,5 @@ db.init()
   .then(() => db.hasDb() && console.log("Postgres ready"))
   .catch((e) => console.error("DB init failed", String(e).slice(0, 300)));
 
-app.listen(PORT, "0.0.0.0", () => console.log(`Backend on :${PORT}`));
+if (require.main === module) app.listen(PORT, "0.0.0.0", () => console.log(`Backend on :${PORT}`));
+module.exports = app;
